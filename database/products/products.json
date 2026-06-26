@@ -1,0 +1,724 @@
+{
+  "products": [
+    {
+      "id": 1,
+      "name": "Laptop Dell XPS 15",
+      "category": "Điện tử",
+      "weight": 2.5,
+      "volume": 0.3,
+      "price": 35000000,
+      "description": "Core i7, RAM 16GB, SSD 512GB"
+    },
+    {
+      "id": 2,
+      "name": "Điện thoại Samsung S24",
+      "category": "Điện tử",
+      "weight": 0.2,
+      "volume": 0.02,
+      "price": 22000000,
+      "description": "6.2 inch, 256GB, 5G"
+    },
+    {
+      "id": 3,
+      "name": "Tai nghe Sony WH-1000XM5",
+      "category": "Điện tử",
+      "weight": 0.3,
+      "volume": 0.05,
+      "price": 8500000,
+      "description": "Chống ồn chủ động, 30h pin"
+    },
+    {
+      "id": 4,
+      "name": "Máy tính bảng iPad Air",
+      "category": "Điện tử",
+      "weight": 0.5,
+      "volume": 0.06,
+      "price": 18000000,
+      "description": "M2, 64GB, WiFi"
+    },
+    {
+      "id": 5,
+      "name": "Loa Bluetooth JBL Charge 5",
+      "category": "Điện tử",
+      "weight": 0.96,
+      "volume": 0.08,
+      "price": 3500000,
+      "description": "Chống nước IP67, 20h pin"
+    },
+    {
+      "id": 6,
+      "name": "Laptop Asus Vivobook",
+      "category": "Điện tử",
+      "weight": 2.6,
+      "volume": 0.02,
+      "price": 900000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 7,
+      "name": "Điện thoại iPhone 16",
+      "category": "Điện tử",
+      "weight": 3.0,
+      "volume": 0.05,
+      "price": 1000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 8,
+      "name": "Chuột Logitech MX Master 3",
+      "category": "Điện tử",
+      "weight": 0.2,
+      "volume": 0.08,
+      "price": 1100000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 9,
+      "name": "Bàn phím Keychron K2",
+      "category": "Điện tử",
+      "weight": 0.6,
+      "volume": 0.11,
+      "price": 1200000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 10,
+      "name": "Màn hình LG UltraWide",
+      "category": "Điện tử",
+      "weight": 1.0,
+      "volume": 0.14,
+      "price": 1300000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 11,
+      "name": "Camera hành trình Xiaomi",
+      "category": "Điện tử",
+      "weight": 1.4,
+      "volume": 0.17,
+      "price": 1400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 12,
+      "name": "Máy lọc không khí Sharp",
+      "category": "Gia dụng",
+      "weight": 1.8,
+      "volume": 0.02,
+      "price": 1500000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 13,
+      "name": "Lò vi sóng Electrolux",
+      "category": "Gia dụng",
+      "weight": 2.2,
+      "volume": 0.05,
+      "price": 1600000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 14,
+      "name": "Máy hút bụi Deerma",
+      "category": "Gia dụng",
+      "weight": 2.6,
+      "volume": 0.08,
+      "price": 1700000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 15,
+      "name": "Bếp từ Kangaroo",
+      "category": "Gia dụng",
+      "weight": 3.0,
+      "volume": 0.11,
+      "price": 1800000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 16,
+      "name": "Máy sấy tóc Panasonic",
+      "category": "Gia dụng",
+      "weight": 0.2,
+      "volume": 0.14,
+      "price": 1900000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 17,
+      "name": "Bàn ủi Philips",
+      "category": "Gia dụng",
+      "weight": 0.6,
+      "volume": 0.17,
+      "price": 2000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 18,
+      "name": "Áo thun Uniqlo",
+      "category": "Thời trang",
+      "weight": 1.0,
+      "volume": 0.02,
+      "price": 2100000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 19,
+      "name": "Quần jeans Levi's",
+      "category": "Thời trang",
+      "weight": 1.4,
+      "volume": 0.05,
+      "price": 2200000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 20,
+      "name": "Giày Adidas Ultraboost",
+      "category": "Thời trang",
+      "weight": 1.8,
+      "volume": 0.08,
+      "price": 2300000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 21,
+      "name": "Ví da nam Pedro",
+      "category": "Thời trang",
+      "weight": 2.2,
+      "volume": 0.11,
+      "price": 2400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 22,
+      "name": "Kính mát Ray-Ban",
+      "category": "Thời trang",
+      "weight": 2.6,
+      "volume": 0.14,
+      "price": 2500000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 23,
+      "name": "Dép Crocs Classic",
+      "category": "Thời trang",
+      "weight": 3.0,
+      "volume": 0.17,
+      "price": 2600000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 24,
+      "name": "Bóng đá Adidas",
+      "category": "Thể thao",
+      "weight": 0.2,
+      "volume": 0.02,
+      "price": 2700000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 25,
+      "name": "Tạ tay Bowflex",
+      "category": "Thể thao",
+      "weight": 0.6,
+      "volume": 0.05,
+      "price": 2800000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 26,
+      "name": "Dây nhảy thể lực",
+      "category": "Thể thao",
+      "weight": 1.0,
+      "volume": 0.08,
+      "price": 2900000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 27,
+      "name": "Găng tay tập gym",
+      "category": "Thể thao",
+      "weight": 1.4,
+      "volume": 0.11,
+      "price": 3000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 28,
+      "name": "Băng bảo vệ đầu gối",
+      "category": "Thể thao",
+      "weight": 1.8,
+      "volume": 0.14,
+      "price": 3100000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 29,
+      "name": "Áo bóng đá CLB",
+      "category": "Thể thao",
+      "weight": 2.2,
+      "volume": 0.17,
+      "price": 3200000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 30,
+      "name": "Sữa rửa mặt Cetaphil",
+      "category": "Mỹ phẩm",
+      "weight": 2.6,
+      "volume": 0.02,
+      "price": 3300000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 31,
+      "name": "Son môi 3CE",
+      "category": "Mỹ phẩm",
+      "weight": 3.0,
+      "volume": 0.05,
+      "price": 3400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 32,
+      "name": "Serum The Ordinary",
+      "category": "Mỹ phẩm",
+      "weight": 0.2,
+      "volume": 0.08,
+      "price": 3500000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 33,
+      "name": "Kem chống nắng Anessa",
+      "category": "Mỹ phẩm",
+      "weight": 0.6,
+      "volume": 0.11,
+      "price": 3600000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 34,
+      "name": "Dầu gội Tsubaki",
+      "category": "Mỹ phẩm",
+      "weight": 1.0,
+      "volume": 0.14,
+      "price": 3700000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 35,
+      "name": "Mặt nạ Mediheal",
+      "category": "Mỹ phẩm",
+      "weight": 1.4,
+      "volume": 0.17,
+      "price": 3800000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 36,
+      "name": "Sách Tuổi Trẻ Đáng Giá Bao Nhiêu",
+      "category": "Sách",
+      "weight": 1.8,
+      "volume": 0.02,
+      "price": 3900000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 37,
+      "name": "Sách Atomic Habits",
+      "category": "Sách",
+      "weight": 2.2,
+      "volume": 0.05,
+      "price": 4000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 38,
+      "name": "Sách Clean Code",
+      "category": "Sách",
+      "weight": 2.6,
+      "volume": 0.08,
+      "price": 4100000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 39,
+      "name": "Sách Dune",
+      "category": "Sách",
+      "weight": 3.0,
+      "volume": 0.11,
+      "price": 4200000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 40,
+      "name": "Sách Deep Learning",
+      "category": "Sách",
+      "weight": 0.2,
+      "volume": 0.14,
+      "price": 4300000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 41,
+      "name": "Sách Sherlock Holmes",
+      "category": "Sách",
+      "weight": 0.6,
+      "volume": 0.17,
+      "price": 4400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 42,
+      "name": "Máy đo đường huyết Accu-Chek",
+      "category": "Y tế",
+      "weight": 1.0,
+      "volume": 0.02,
+      "price": 4500000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 43,
+      "name": "Nhiệt kế điện tử Microlife",
+      "category": "Y tế",
+      "weight": 1.4,
+      "volume": 0.05,
+      "price": 4600000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 44,
+      "name": "Khẩu trang y tế 4 lớp",
+      "category": "Y tế",
+      "weight": 1.8,
+      "volume": 0.08,
+      "price": 4700000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 45,
+      "name": "Máy xông mũi họng Omron",
+      "category": "Y tế",
+      "weight": 2.2,
+      "volume": 0.11,
+      "price": 4800000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 46,
+      "name": "Đai lưng hỗ trợ cột sống",
+      "category": "Y tế",
+      "weight": 2.6,
+      "volume": 0.14,
+      "price": 4900000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 47,
+      "name": "Máy massage cầm tay",
+      "category": "Y tế",
+      "weight": 3.0,
+      "volume": 0.17,
+      "price": 5000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 48,
+      "name": "Hạt điều rang muối",
+      "category": "Thực phẩm",
+      "weight": 0.2,
+      "volume": 0.02,
+      "price": 5100000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 49,
+      "name": "Trà xanh Thái Nguyên",
+      "category": "Thực phẩm",
+      "weight": 0.6,
+      "volume": 0.05,
+      "price": 5200000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 50,
+      "name": "Mật ong rừng nguyên chất",
+      "category": "Thực phẩm",
+      "weight": 1.0,
+      "volume": 0.08,
+      "price": 5300000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 51,
+      "name": "Yến mạch Quaker",
+      "category": "Thực phẩm",
+      "weight": 1.4,
+      "volume": 0.11,
+      "price": 5400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 52,
+      "name": "Socola Lindt",
+      "category": "Thực phẩm",
+      "weight": 1.8,
+      "volume": 0.14,
+      "price": 5500000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 53,
+      "name": "Hạt mắc ca Úc",
+      "category": "Thực phẩm",
+      "weight": 2.2,
+      "volume": 0.17,
+      "price": 5600000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 54,
+      "name": "Sản phẩm 54",
+      "category": "Y tế",
+      "weight": 2.05,
+      "volume": 0.14,
+      "price": 8400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 55,
+      "name": "Sản phẩm 55",
+      "category": "Thực phẩm",
+      "weight": 2.4,
+      "volume": 0.02,
+      "price": 8550000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 56,
+      "name": "Sản phẩm 56",
+      "category": "Điện tử",
+      "weight": 0.3,
+      "volume": 0.05,
+      "price": 8700000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 57,
+      "name": "Sản phẩm 57",
+      "category": "Gia dụng",
+      "weight": 0.65,
+      "volume": 0.08,
+      "price": 8850000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 58,
+      "name": "Sản phẩm 58",
+      "category": "Thời trang",
+      "weight": 1.0,
+      "volume": 0.11,
+      "price": 9000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 59,
+      "name": "Sản phẩm 59",
+      "category": "Thể thao",
+      "weight": 1.35,
+      "volume": 0.14,
+      "price": 9150000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 60,
+      "name": "Sản phẩm 60",
+      "category": "Mỹ phẩm",
+      "weight": 1.7,
+      "volume": 0.02,
+      "price": 9300000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 61,
+      "name": "Sản phẩm 61",
+      "category": "Sách",
+      "weight": 2.05,
+      "volume": 0.05,
+      "price": 9450000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 62,
+      "name": "Sản phẩm 62",
+      "category": "Y tế",
+      "weight": 2.4,
+      "volume": 0.08,
+      "price": 9600000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 63,
+      "name": "Sản phẩm 63",
+      "category": "Thực phẩm",
+      "weight": 0.3,
+      "volume": 0.11,
+      "price": 9750000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 64,
+      "name": "Sản phẩm 64",
+      "category": "Điện tử",
+      "weight": 0.65,
+      "volume": 0.14,
+      "price": 9900000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 65,
+      "name": "Sản phẩm 65",
+      "category": "Gia dụng",
+      "weight": 1.0,
+      "volume": 0.02,
+      "price": 10050000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 66,
+      "name": "Sản phẩm 66",
+      "category": "Thời trang",
+      "weight": 1.35,
+      "volume": 0.05,
+      "price": 10200000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 67,
+      "name": "Sản phẩm 67",
+      "category": "Thể thao",
+      "weight": 1.7,
+      "volume": 0.08,
+      "price": 10350000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 68,
+      "name": "Sản phẩm 68",
+      "category": "Mỹ phẩm",
+      "weight": 2.05,
+      "volume": 0.11,
+      "price": 10500000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 69,
+      "name": "Sản phẩm 69",
+      "category": "Sách",
+      "weight": 2.4,
+      "volume": 0.14,
+      "price": 10650000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 70,
+      "name": "Sản phẩm 70",
+      "category": "Y tế",
+      "weight": 0.3,
+      "volume": 0.02,
+      "price": 10800000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 71,
+      "name": "Sản phẩm 71",
+      "category": "Thực phẩm",
+      "weight": 0.65,
+      "volume": 0.05,
+      "price": 10950000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 72,
+      "name": "Sản phẩm 72",
+      "category": "Điện tử",
+      "weight": 1.0,
+      "volume": 0.08,
+      "price": 11100000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 73,
+      "name": "Sản phẩm 73",
+      "category": "Gia dụng",
+      "weight": 1.35,
+      "volume": 0.11,
+      "price": 11250000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 74,
+      "name": "Sản phẩm 74",
+      "category": "Thời trang",
+      "weight": 1.7,
+      "volume": 0.14,
+      "price": 11400000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 75,
+      "name": "Sản phẩm 75",
+      "category": "Thể thao",
+      "weight": 2.05,
+      "volume": 0.02,
+      "price": 11550000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 76,
+      "name": "Sản phẩm 76",
+      "category": "Mỹ phẩm",
+      "weight": 2.4,
+      "volume": 0.05,
+      "price": 11700000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 77,
+      "name": "Sản phẩm 77",
+      "category": "Sách",
+      "weight": 0.3,
+      "volume": 0.08,
+      "price": 11850000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 78,
+      "name": "Sản phẩm 78",
+      "category": "Y tế",
+      "weight": 0.65,
+      "volume": 0.11,
+      "price": 12000000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 79,
+      "name": "Sản phẩm 79",
+      "category": "Thực phẩm",
+      "weight": 1.0,
+      "volume": 0.14,
+      "price": 12150000,
+      "description": "Thông số tiêu chuẩn"
+    },
+    {
+      "id": 80,
+      "name": "Sản phẩm 80",
+      "category": "Điện tử",
+      "weight": 1.35,
+      "volume": 0.02,
+      "price": 12300000,
+      "description": "Thông số tiêu chuẩn"
+    }
+  ]
+}

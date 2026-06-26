@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -175,14 +175,70 @@ function computeVehiclePositions(
   return output;
 }
 
-// Auto-fit bounds whenever markers change
+// Returns the untraversed portion of a trip's geometry from the current simTime position
+function buildRemainingCoords(
+  trip: any,
+  simTime: number,
+  customerPositions: { id: number; lat: number; lon: number }[]
+): [number, number][] {
+  const stops: any[] = trip.stops ?? [];
+  if (stops.length < 2) return [];
+
+  const getPos = (nodeId: number): [number, number] | null => {
+    if (nodeId === 0) return [DEPOT_LAT, DEPOT_LON];
+    const p = customerPositions.find(c => c.id === nodeId);
+    return p ? [p.lat, p.lon] : null;
+  };
+
+  const tripStart = stops[0].departure_time ?? stops[0].arrival_time ?? 0;
+  const tripEnd   = stops[stops.length - 1].arrival_time ?? 0;
+
+  if (simTime < tripStart) {
+    const geom: [number, number][] | null = trip.geometry ?? null;
+    if (geom) return geom;
+    return stops.map((s: any) => getPos(s.node_id)).filter(Boolean) as [number, number][];
+  }
+  if (simTime >= tripEnd) return [];
+
+  let fromStopIdx = 0;
+  for (let i = 0; i < stops.length; i++) {
+    const depT = stops[i].departure_time ?? stops[i].arrival_time ?? 0;
+    if (simTime >= depT) fromStopIdx = i;
+    else break;
+  }
+
+  const geom: [number, number][] | null = trip.geometry ?? null;
+  if (geom && geom.length >= 2) {
+    let searchFrom = 0, startGeomIdx = 0;
+    for (let i = 0; i <= fromStopIdx; i++) {
+      const pos = getPos(stops[i].node_id);
+      if (pos) {
+        const gi = closestGeomIndex(geom, pos[0], pos[1], searchFrom);
+        if (i === fromStopIdx) startGeomIdx = gi;
+        searchFrom = gi;
+      }
+    }
+    return geom.slice(startGeomIdx);
+  }
+
+  const coords: [number, number][] = [];
+  for (let i = fromStopIdx; i < stops.length; i++) {
+    const p = getPos(stops[i].node_id);
+    if (p) coords.push(p);
+  }
+  return coords;
+}
+
+// Fit bounds once on first load only
 function FitBounds({ positions }: { positions: [number, number][] }) {
   const map = useMap();
+  const hasFit = useRef(false);
   useEffect(() => {
-    if (positions.length > 0) {
+    if (!hasFit.current && positions.length > 1) {
       map.fitBounds(L.latLngBounds(positions), { padding: [40, 40] });
+      hasFit.current = true;
     }
-  }, [positions.join(',')]);
+  }, [map, positions]);
   return null;
 }
 
@@ -195,9 +251,11 @@ interface Props {
   simTime?: number | null;
 }
 
-export default function MapView({ customerDB, orders, result, selectedVehicleId, simTime }: Props) {
+export default function MapView({ customerDB, orders, result, simTime }: Props) {
   const HANOI_CENTER: [number, number] = [21.02, 105.83];
   const [mapVehicleFilter, setMapVehicleFilter] = useState<number | string>('all');
+  const [showUnvisitedOnly, setShowUnvisitedOnly] = useState(false);
+  const [showUntraversedOnly, setShowUntraversedOnly] = useState(false);
 
   // Build list of all positioned nodes
   const customerPositions: { id: number; lat: number; lon: number; name: string; address: string; time: string }[] = [];
@@ -208,10 +266,6 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
     }
   }
 
-  const allPositions: [number, number][] = [
-    [DEPOT_LAT, DEPOT_LON],
-    ...customerPositions.map(p => [p.lat, p.lon] as [number, number]),
-  ];
 
   // Build route polylines from result — one line per trip, grouped by vehicle
   const routeLines: { vehicleId: number; color: string; coords: [number, number][]; key: string }[] = [];
@@ -220,11 +274,13 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
       const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
       route.trips?.forEach((trip: any, tripIdx: number) => {
         const key = `route-${route.vehicle_id}-trip-${tripIdx}`;
-        const coords: [number, number][] = trip.geometry || trip.sequence.map((nodeId: number) => {
-          if (nodeId === 0) return [DEPOT_LAT, DEPOT_LON] as [number, number];
-          const p = customerPositions.find(c => c.id === nodeId);
-          return p ? [p.lat, p.lon] as [number, number] : null;
-        }).filter(Boolean);
+        const coords: [number, number][] = (showUntraversedOnly && simTime != null)
+          ? buildRemainingCoords(trip, simTime, customerPositions)
+          : (trip.geometry || trip.sequence.map((nodeId: number) => {
+              if (nodeId === 0) return [DEPOT_LAT, DEPOT_LON] as [number, number];
+              const p = customerPositions.find(c => c.id === nodeId);
+              return p ? [p.lat, p.lon] as [number, number] : null;
+            }).filter(Boolean));
 
         if (coords.length > 1) routeLines.push({ vehicleId: route.vehicle_id, color, coords, key });
       });
@@ -256,10 +312,59 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
     ? computeVehiclePositions(result, customerPositions, simTime)
     : [];
 
+  // Build vehicle → customer-id set for marker filtering
+  const vehicleCustomers: Record<number, Set<number>> = {};
+  if (result?.routes) {
+    result.routes.forEach((route: any) => {
+      const vid = route.vehicle_id;
+      if (!vehicleCustomers[vid]) vehicleCustomers[vid] = new Set();
+      route.trips?.forEach((trip: any) => {
+        trip.sequence.forEach((nodeId: number) => {
+          if (nodeId !== 0) vehicleCustomers[vid].add(nodeId);
+        });
+      });
+    });
+  }
+
+  const visitedCustomerIds = new Set<number>();
+  if (simTime != null && result?.routes) {
+    result.routes.forEach((route: any) => {
+      route.trips?.forEach((trip: any) => {
+        trip.stops?.forEach((stop: any) => {
+          if (stop.node_id !== 0 && simTime >= (stop.arrival_time ?? Infinity)) {
+            visitedCustomerIds.add(stop.node_id);
+          }
+        });
+      });
+    });
+  }
+
+  let visibleCustomers = mapVehicleFilter === 'all'
+    ? customerPositions
+    : customerPositions.filter(p => (vehicleCustomers[mapVehicleFilter as number] ?? new Set()).has(p.id));
+  if (showUnvisitedOnly && simTime != null) {
+    visibleCustomers = visibleCustomers.filter(p => !visitedCustomerIds.has(p.id));
+  }
+
+  const visibleVehiclePositions = mapVehicleFilter === 'all'
+    ? vehiclePositions
+    : vehiclePositions.filter(vp => vp.vehicleId === (mapVehicleFilter as number));
+
+  const fitPositions: [number, number][] = [
+    [DEPOT_LAT, DEPOT_LON],
+    ...visibleCustomers.map(p => [p.lat, p.lon] as [number, number]),
+  ];
+
+  // Bounds covering greater Hanoi — prevents zooming/panning to disputed South China Sea islands
+  const HANOI_MAX_BOUNDS: [[number, number], [number, number]] = [[20.7, 105.4], [21.5, 106.4]];
+
   return (
     <MapContainer
       center={HANOI_CENTER}
       zoom={11}
+      minZoom={10}
+      maxBounds={HANOI_MAX_BOUNDS}
+      maxBoundsViscosity={1.0}
       style={{ height: '100%', width: '100%', borderRadius: '0.75rem' }}
     >
       <TileLayer
@@ -267,7 +372,7 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      <FitBounds positions={allPositions} />
+      <FitBounds positions={fitPositions} />
 
       {/* Depot */}
       <Marker position={[DEPOT_LAT, DEPOT_LON]} icon={depotIcon}>
@@ -278,7 +383,7 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
       </Marker>
 
       {/* Customer markers */}
-      {customerPositions.map((p, idx) => {
+      {visibleCustomers.map((p, idx) => {
         const color = customerColor[p.id] ?? '#64748b';
         return (
           <Marker key={p.id} position={[p.lat, p.lon]} icon={makeCustomerIcon(String(idx + 1), color)}>
@@ -301,7 +406,7 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
       ))}
 
       {/* Simulated vehicle positions */}
-      {vehiclePositions.map(vp => (
+      {visibleVehiclePositions.map(vp => (
         <Marker
           key={`vsim-${vp.vehicleId}`}
           position={[vp.lat, vp.lon]}
@@ -311,44 +416,78 @@ export default function MapView({ customerDB, orders, result, selectedVehicleId,
         </Marker>
       ))}
 
-      {/* Vehicle Filter Dropdown - positioned at top-right of map */}
+      {/* Map overlay controls */}
       {result?.routes && uniqueVehicleIds.length > 0 && (
-        <div style={{
-          position: 'absolute',
-          top: '12px',
-          right: '12px',
-          backgroundColor: '#fff',
-          padding: '8px 12px',
-          borderRadius: '6px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          zIndex: 1000,
-          fontSize: '13px',
-          fontWeight: '600',
-          color: '#333',
-        }}>
-          <select 
-            value={mapVehicleFilter} 
+        <div style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
+          <select
+            value={mapVehicleFilter}
             onChange={(e) => setMapVehicleFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
             style={{
-              width: '100%',
-              padding: '6px 8px',
-              border: '2px solid #e0e0e0',
-              borderRadius: '4px',
-              backgroundColor: '#fafafa',
-              color: '#333',
+              padding: '6px 10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              backgroundColor: '#ffffff',
+              color: '#334155',
               fontSize: '12px',
               fontWeight: '500',
               cursor: 'pointer',
-              transition: 'border-color 0.2s',
+              boxShadow: '0 1px 6px rgba(0,0,0,0.12)',
+              outline: 'none',
             }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#2196F3'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
           >
-            <option value="all">📍 Tất cả xe ({uniqueVehicleIds.length})</option>
+            <option value="all">Tất cả xe ({uniqueVehicleIds.length})</option>
             {uniqueVehicleIds.map((vid: number) => (
-              <option key={vid} value={vid}>🚚 Xe {vid}</option>
+              <option key={vid} value={vid}>Xe {vid}</option>
             ))}
           </select>
+
+          {simTime != null && (
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '5px 10px',
+              backgroundColor: showUnvisitedOnly ? '#eef2ff' : '#ffffff',
+              border: showUnvisitedOnly ? '1px solid #818cf8' : '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: '500',
+              color: showUnvisitedOnly ? '#4338ca' : '#475569',
+              cursor: 'pointer',
+              boxShadow: '0 1px 6px rgba(0,0,0,0.12)',
+              userSelect: 'none',
+            }}>
+              <input
+                type="checkbox"
+                checked={showUnvisitedOnly}
+                onChange={e => setShowUnvisitedOnly(e.target.checked)}
+                style={{ accentColor: '#6366f1', cursor: 'pointer', width: 13, height: 13 }}
+              />
+              Chỉ điểm chưa thăm
+            </label>
+          )}
+
+          {simTime != null && (
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '5px 10px',
+              backgroundColor: showUntraversedOnly ? '#fff7ed' : '#ffffff',
+              border: showUntraversedOnly ? '1px solid #fb923c' : '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: '500',
+              color: showUntraversedOnly ? '#c2410c' : '#475569',
+              cursor: 'pointer',
+              boxShadow: '0 1px 6px rgba(0,0,0,0.12)',
+              userSelect: 'none',
+            }}>
+              <input
+                type="checkbox"
+                checked={showUntraversedOnly}
+                onChange={e => setShowUntraversedOnly(e.target.checked)}
+                style={{ accentColor: '#f97316', cursor: 'pointer', width: 13, height: 13 }}
+              />
+              Chỉ đường chưa đi
+            </label>
+          )}
         </div>
       )}
     </MapContainer>

@@ -2,3 +2,5 @@ instances_raw/
 __pycache__/
 */__pycache__/
 *.pyc
+report/
+note.md

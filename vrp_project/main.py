@@ -2,13 +2,15 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Tuple, Dict, Optional, Callable, Awaitable
+from typing import List, Tuple, Dict, Optional, Callable, Awaitable, Any
 from functools import partial
+from pathlib import Path
 import asyncio
 import json
 import uuid
 import time
 import httpx
+from datetime import date as _date
 
 from vrp.core.problem import Problem, Customer, Order, Vehicle, Depot
 from vrp.solvers.ga_tcpvrp import GA_TCPVRP_Solver
@@ -17,6 +19,12 @@ from vrp.core.eval import evaluate
 # Global progress store: session_id -> asyncio.Queue of SSE events
 _progress_queues: Dict[str, asyncio.Queue] = {}
 
+# In-memory GPS store: driver_id -> {lat, lon}
+_driver_locations: Dict[int, dict] = {}
+
+# Simulated dispatch date (YYYY-MM-DD) — can be changed via admin UI
+_sim_date: str = str(_date.today())
+
 # Matrix cache: list of (frozenset_of_node_ids, dist_matrix, time_matrix).
 # Keeps only the most recent entry — cleared and replaced on every new solve or
 # cache-miss recalculate so memory stays bounded.
@@ -24,14 +32,70 @@ _matrix_cache: list = []
 
 def _cached_matrices(node_ids: set):
     """Return (dist_matrix, time_matrix) if all node_ids are covered, else None."""
-    for cached_ids, dist, time_m in _matrix_cache:
+    for cached_ids, _, dist, time_m in _matrix_cache:
         if node_ids <= cached_ids:
             return dist, time_m
     return None
 
-def _store_matrix_cache(node_ids: set, dist: dict, time_m: dict):
+def _store_matrix_cache(node_coords_list: list, dist: dict, time_m: dict):
+    """node_coords_list: [(node_id, lat, lon), ...]"""
+    id_to_lonlat = {nid: (lon, lat) for nid, lat, lon in node_coords_list}
     _matrix_cache.clear()
-    _matrix_cache.append((frozenset(node_ids), dist, time_m))
+    _matrix_cache.append((frozenset(id_to_lonlat.keys()), id_to_lonlat, dist, time_m))
+
+async def _extend_matrices_with_new_nodes(
+    new_node_coords: list,  # [(node_id, lat, lon), ...] NEW nodes only
+) -> Tuple[dict, dict]:
+    """
+    Extend the cached distance/time matrices with one or more new nodes.
+    Only fetches 2 small OSRM batches (new→all row, all-old→new column)
+    instead of rebuilding the full N² matrix.
+    """
+    cached_ids, id_to_lonlat, old_dist, old_time = _matrix_cache[0]
+
+    # Merge old + new coordinates
+    combined = dict(id_to_lonlat)
+    for nid, lat, lon in new_node_coords:
+        combined[nid] = (lon, lat)
+
+    all_ids         = list(combined.keys())
+    all_osrm_coords = [combined[nid] for nid in all_ids]   # (lon, lat) each
+    all_indices     = list(range(len(all_ids)))
+    new_indices     = [all_ids.index(nid) for nid, _, _ in new_node_coords]
+    old_indices     = [i for i in all_indices if i not in new_indices]
+
+    # Copy existing matrix; fill new cells with fallback values
+    new_dist = dict(old_dist)
+    new_time = dict(old_time)
+    for nid_n in [all_ids[i] for i in new_indices]:
+        for nid_a in all_ids:
+            new_dist.setdefault((nid_n, nid_a), 0.0 if nid_n == nid_a else 5000.0)
+            new_time.setdefault((nid_n, nid_a), 0.0 if nid_n == nid_a else 600.0)
+            new_dist.setdefault((nid_a, nid_n), 0.0 if nid_a == nid_n else 5000.0)
+            new_time.setdefault((nid_a, nid_n), 0.0 if nid_a == nid_n else 600.0)
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Row: new nodes → all nodes
+        dist_r, time_r = await _osrm_table_batch(client, all_osrm_coords, new_indices, all_indices)
+        for ri, si in enumerate(new_indices):
+            for ci, di in enumerate(all_indices):
+                uid, vid = all_ids[si], all_ids[di]
+                new_dist[(uid, vid)] = float(dist_r[ri][ci] or 0.0)
+                new_time[(uid, vid)] = float(time_r[ri][ci] or 0.0)
+
+        # Column: old nodes → new nodes  (new→new already covered above)
+        if old_indices:
+            dist_c, time_c = await _osrm_table_batch(client, all_osrm_coords, old_indices, new_indices)
+            for ri, si in enumerate(old_indices):
+                for ci, di in enumerate(new_indices):
+                    uid, vid = all_ids[si], all_ids[di]
+                    new_dist[(uid, vid)] = float(dist_c[ri][ci] or 0.0)
+                    new_time[(uid, vid)] = float(time_c[ri][ci] or 0.0)
+
+    n_new = len(new_node_coords)
+    print(f"[Matrix Cache] Incremental +{n_new} node(s) — 2 OSRM batch(es) instead of full {len(all_ids)}²")
+    return new_dist, new_time
+
 
 app = FastAPI(title="VRP Smart Routing API")
 
@@ -439,7 +503,7 @@ async def solve_routing(payload: VRPRequest, session_id: Optional[str] = Query(N
             })
         else:
             dist_matrix, time_matrix = await build_matrices_osrm(node_coords, session_id=session_id)
-            _store_matrix_cache(_needed_ids, dist_matrix, time_matrix)
+            _store_matrix_cache(node_coords, dist_matrix, time_matrix)
 
         prob = Problem(
             vehicles=vehicles, depots=[depot], customers=customers,
@@ -535,10 +599,17 @@ async def recalculate_routing(payload: RecalculateRequest):
         if _hit:
             dist_matrix, time_matrix = _hit
             print(f"[Matrix Cache] Hit ({len(_needed_ids)} nodes) — skipping OSRM in recalculate")
+        elif _matrix_cache:
+            # Incremental: only fetch distances for nodes not yet in the cache
+            cached_ids = _matrix_cache[0][0]
+            new_nodes  = [(nid, lat, lon) for nid, lat, lon in node_coords if nid not in cached_ids]
+            print(f"[Matrix Cache] Incremental — {len(new_nodes)} new node(s), skipping full rebuild")
+            dist_matrix, time_matrix = await _extend_matrices_with_new_nodes(new_nodes)
+            _store_matrix_cache(node_coords, dist_matrix, time_matrix)
         else:
-            print(f"[Matrix Cache] Miss — fetching OSRM for {len(_needed_ids)} nodes")
+            print(f"[Matrix Cache] Miss — fetching full OSRM for {len(_needed_ids)} nodes")
             dist_matrix, time_matrix = await build_matrices_osrm(node_coords)
-            _store_matrix_cache(_needed_ids, dist_matrix, time_matrix)
+            _store_matrix_cache(node_coords, dist_matrix, time_matrix)
 
         prob = Problem(vehicles=vehicles_list, depots=[depot], customers=list(customers_map.values()),
                       penalty_weight=25, distance_matrix=dist_matrix, time_matrix=time_matrix, 
@@ -588,3 +659,503 @@ async def recalculate_routing(payload: RecalculateRequest):
     except Exception as e:
         print(f"Error: {e}") # Debug lỗi ra console
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Assignments ---
+DB_DIR           = Path(__file__).parent.parent / "database"
+ASSIGNMENTS_PATH = DB_DIR / "assignments" / "assignments.json"
+VEHICLES_PATH    = DB_DIR / "vehicles"    / "vehicles.json"
+DRIVERS_PATH     = DB_DIR / "drivers"     / "drivers.json"
+ORDERS_PATH      = DB_DIR / "orders"      / "orders.json"
+CUSTOMERS_PATH   = DB_DIR / "customers"   / "customers.json"
+PRODUCTS_PATH    = DB_DIR / "products"    / "products.json"
+
+class AssignmentConfirmRequest(BaseModel):
+    data: Any
+
+@app.post("/api/v1/assignments/confirm")
+async def confirm_assignment(payload: AssignmentConfirmRequest):
+    try:
+        data = payload.data
+
+        # Load vehicles first to build vehicle_id → driver_id map
+        vehicles_db = json.loads(VEHICLES_PATH.read_text(encoding="utf-8"))
+        vehicle_to_driver = {v["id"]: v.get("driver_id") for v in vehicles_db["vehicles"]}
+
+        # Collect vehicle_ids and order_id → driver_id mapping
+        vehicle_ids: set = set()
+        order_driver_map: dict = {}  # order_id → driver_id
+        for v in data.get("vehicles", []):
+            vid = v["vehicle_id"]
+            vehicle_ids.add(vid)
+            driver_id = vehicle_to_driver.get(vid)
+            for trip in v.get("trips", []):
+                for customer in trip.get("customers", []):
+                    for order in customer.get("orders", []):
+                        order_driver_map[order["order_id"]] = driver_id
+
+        driver_ids = {did for did in order_driver_map.values() if did is not None}
+
+        # Archive previous assignment before overwriting
+        ASSIGNMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        history_dir = ASSIGNMENTS_PATH.parent / "history"
+        history_dir.mkdir(exist_ok=True)
+        if ASSIGNMENTS_PATH.exists():
+            prev = ASSIGNMENTS_PATH.read_text(encoding="utf-8").strip()
+            if prev and prev != "null":
+                import datetime as _dt
+                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+                (history_dir / f"assignments_{ts}.json").write_text(prev, encoding="utf-8")
+
+        # Write new assignment
+        ASSIGNMENTS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Update vehicles.json (already loaded)
+        for v in vehicles_db["vehicles"]:
+            if v["id"] in vehicle_ids:
+                v["status"] = "assigned"
+        VEHICLES_PATH.write_text(json.dumps(vehicles_db, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Update drivers.json
+        drivers_db = json.loads(DRIVERS_PATH.read_text(encoding="utf-8"))
+        for d in drivers_db["drivers"]:
+            if d["id"] in driver_ids:
+                d["status"] = "assigned"
+        DRIVERS_PATH.write_text(json.dumps(drivers_db, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Update orders.json — set status AND driver_id
+        orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+        for o in orders_db["orders"]:
+            if o["id"] in order_driver_map:
+                o["status"] = "assigned"
+                o["driver_id"] = order_driver_map[o["id"]]
+        ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Driver & Customer auth ---
+
+class DriverLoginRequest(BaseModel):
+    phone: str
+    password: str
+
+@app.post("/api/v1/drivers/login")
+async def driver_login(payload: DriverLoginRequest):
+    drivers_db = json.loads(DRIVERS_PATH.read_text(encoding="utf-8"))
+    for d in drivers_db["drivers"]:
+        if d.get("phone") == payload.phone and d.get("password") == payload.password:
+            return {"driver": {k: v for k, v in d.items() if k != "password"}}
+    raise HTTPException(status_code=401, detail="Số điện thoại hoặc mật khẩu không đúng")
+
+
+@app.post("/api/v1/customers/login")
+async def customer_login(payload: DriverLoginRequest):
+    customers_db = json.loads(CUSTOMERS_PATH.read_text(encoding="utf-8"))
+    for c in customers_db["customers"]:
+        if c.get("phone") == payload.phone and c.get("password") == payload.password:
+            return {"customer": {k: v for k, v in c.items() if k != "password"}}
+    raise HTTPException(status_code=401, detail="Số điện thoại hoặc mật khẩu không đúng")
+
+
+@app.get("/api/v1/customers/{customer_id}/orders")
+async def get_customer_orders(customer_id: int):
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    customer_orders = [o for o in orders_db["orders"] if o["customer_id"] == customer_id]
+
+    # Look up expected arrival time from assignments.json
+    arrival_map: dict = {}  # customer_id -> arrival_time string
+    try:
+        assignments_text = ASSIGNMENTS_PATH.read_text(encoding="utf-8").strip()
+        if assignments_text and assignments_text != "null":
+            assignments = json.loads(assignments_text)
+            for vehicle in assignments.get("vehicles", []):
+                for trip in vehicle.get("trips", []):
+                    for stop in trip.get("customers", []):
+                        cid = stop.get("customer_id")
+                        if cid and stop.get("arrival_time"):
+                            arrival_map[cid] = stop["arrival_time"]
+    except Exception:
+        pass
+
+    for o in customer_orders:
+        o["arrival_time"] = arrival_map.get(o["customer_id"])
+
+    return {"orders": customer_orders}
+
+
+@app.get("/api/v1/products")
+async def list_products():
+    return json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
+
+
+class PlaceOrderRequest(BaseModel):
+    product_ids: List[int]
+    time_window_start: str
+    time_window_end: str
+    notes: str = ""
+
+@app.post("/api/v1/customers/{customer_id}/orders")
+async def place_customer_orders(customer_id: int, payload: PlaceOrderRequest):
+    if not payload.product_ids:
+        raise HTTPException(status_code=400, detail="No products selected")
+
+    products_db = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
+    product_map = {p["id"]: p for p in products_db["products"]}
+
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    next_id = max((o["id"] for o in orders_db["orders"]), default=10000) + 1
+
+    today = _sim_date
+    new_orders = []
+    for i, pid in enumerate(payload.product_ids):
+        product = product_map.get(pid)
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product {pid} not found")
+        new_orders.append({
+            "id":                next_id + i,
+            "customer_id":       customer_id,
+            "product_name":      product["name"],
+            "category":          product["category"],
+            "weight":            product["weight"],
+            "volume":            product["volume"],
+            "time_window_start": payload.time_window_start,
+            "time_window_end":   payload.time_window_end,
+            "service_duration":  10,
+            "status":            "pending",
+            "driver_id":         None,
+            "created_at":        today,
+            "notes":             payload.notes,
+        })
+
+    orders_db["orders"].extend(new_orders)
+    ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "created": len(new_orders), "orders": new_orders}
+
+
+@app.get("/api/v1/drivers/{driver_id}/orders")
+async def get_driver_orders(driver_id: int):
+    # Find this driver's vehicle
+    vehicles_db = json.loads(VEHICLES_PATH.read_text(encoding="utf-8"))
+    driver_vehicle = next((v for v in vehicles_db["vehicles"] if v.get("driver_id") == driver_id), None)
+    if not driver_vehicle:
+        return {"trips": [], "vehicle": None}
+
+    vehicle_id = driver_vehicle["id"]
+
+    # Load assignments for route sequence and timing
+    if not ASSIGNMENTS_PATH.exists():
+        return {"trips": [], "vehicle": driver_vehicle}
+    assignments_text = ASSIGNMENTS_PATH.read_text(encoding="utf-8").strip()
+    if not assignments_text or assignments_text in ("", "null"):
+        return {"trips": [], "vehicle": driver_vehicle}
+    try:
+        assignments = json.loads(assignments_text)
+    except Exception:
+        return {"trips": [], "vehicle": driver_vehicle}
+
+    vehicle_assignment = next(
+        (v for v in assignments.get("vehicles", []) if v["vehicle_id"] == vehicle_id), None
+    )
+    if not vehicle_assignment:
+        return {"trips": [], "vehicle": driver_vehicle}
+
+    # Build live order detail map from orders.json (product info + current status)
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    order_detail_map = {
+        o["id"]: {
+            "product_name": o.get("product_name", ""),
+            "category":     o.get("category", ""),
+            "notes":        o.get("notes", ""),
+            "status":       o.get("status", "assigned"),
+        }
+        for o in orders_db["orders"]
+    }
+
+    # Build customer info map from customers.json
+    customers_db = json.loads(CUSTOMERS_PATH.read_text(encoding="utf-8"))
+    customer_info_map = {
+        c["id"]: {"phone": c.get("phone"), "lat": c.get("lat"), "lon": c.get("lon")}
+        for c in customers_db["customers"]
+    }
+
+    # Build trips → stops → orders in assignment sequence
+    trips = []
+    for trip in vehicle_assignment.get("trips", []):
+        stops = []
+        for customer in trip.get("customers", []):
+            orders_at_stop = []
+            for order in customer.get("orders", []):
+                oid = order["order_id"]
+                detail = order_detail_map.get(oid, {})
+                orders_at_stop.append({
+                    "id":                   oid,
+                    "product_name":         detail.get("product_name", ""),
+                    "category":             detail.get("category", ""),
+                    "weight":               order["weight"],
+                    "volume":               order["volume"],
+                    "service_duration_min": order["service_duration_min"],
+                    "notes":                detail.get("notes", ""),
+                    "status":               detail.get("status", "assigned"),
+                })
+            cinfo = customer_info_map.get(customer["customer_id"], {})
+            stops.append({
+                "stop_index":      customer["stop_index"],
+                "customer_id":     customer["customer_id"],
+                "customer_name":   customer.get("name"),
+                "customer_address":customer.get("address"),
+                "customer_phone":  cinfo.get("phone"),
+                "lat":             customer.get("lat") if customer.get("lat") is not None else cinfo.get("lat"),
+                "lon":             customer.get("lon") if customer.get("lon") is not None else cinfo.get("lon"),
+                "time_window":     customer.get("time_window"),
+                "arrival_time":    customer.get("arrival_time"),
+                "departure_time":  customer.get("departure_time"),
+                "orders":          orders_at_stop,
+            })
+        trips.append({
+            "trip_index": trip["trip_index"],
+            "geometry":   trip.get("geometry"),
+            "stops":      stops,
+        })
+
+    return {
+        "vehicle": {
+            "id":     driver_vehicle["id"],
+            "type":   driver_vehicle.get("type"),
+            "plate":  driver_vehicle.get("plate"),
+            "status": driver_vehicle.get("status"),
+        },
+        "trips": trips,
+    }
+
+
+class OrderStatusUpdate(BaseModel):
+    status: str
+
+class BulkOrderStatusUpdate(BaseModel):
+    order_ids: List[int]
+    status: str
+
+_CANCELLABLE = {"pending", "failed"}
+
+@app.patch("/api/v1/orders/bulk-status")
+async def bulk_update_order_status(payload: BulkOrderStatusUpdate):
+    if payload.status not in ("in_transit", "delivered", "failed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    id_set = set(payload.order_ids)
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    updated = 0
+    for o in orders_db["orders"]:
+        if o["id"] in id_set:
+            if payload.status == "cancelled" and o["status"] not in _CANCELLABLE:
+                continue
+            o["status"] = payload.status
+            updated += 1
+    ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "updated": updated}
+
+@app.patch("/api/v1/orders/{order_id}/status")
+async def update_order_status(order_id: int, payload: OrderStatusUpdate):
+    if payload.status not in ("in_transit", "delivered", "failed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    for o in orders_db["orders"]:
+        if o["id"] == order_id:
+            if payload.status == "cancelled" and o["status"] not in _CANCELLABLE:
+                raise HTTPException(status_code=400, detail="Chỉ huỷ được khi đơn đang chờ xử lý hoặc giao thất bại")
+            o["status"] = payload.status
+            ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Order not found")
+
+@app.patch("/api/v1/customers/{customer_id}/orders/{order_id}/cancel")
+async def cancel_customer_order(customer_id: int, order_id: int):
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    for o in orders_db["orders"]:
+        if o["id"] == order_id and o["customer_id"] == customer_id:
+            if o["status"] not in _CANCELLABLE:
+                raise HTTPException(status_code=400, detail="Chỉ huỷ được khi đơn đang chờ xử lý hoặc giao thất bại")
+            o["status"] = "cancelled"
+            ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Order not found")
+
+
+_CATEGORIES = ['Điện tử', 'Gia dụng', 'Thời trang', 'Điện máy', 'Thực phẩm', 'Nội thất', 'Y tế', 'Thể thao', 'Trang trí', 'Mỹ phẩm', 'Trẻ em', 'Âm nhạc', 'Đồ chơi', 'Xe cộ', 'Sách']
+_PRODUCT_NAMES = {
+    'Điện tử':   ['Laptop Gaming', 'Điện thoại Samsung', 'Tai nghe Bluetooth', 'Máy tính bảng', 'Loa di động'],
+    'Gia dụng':  ['Nồi cơm điện', 'Máy xay sinh tố', 'Bàn là hơi nước', 'Quạt điện', 'Ấm đun nước'],
+    'Thời trang':['Áo khoác nam', 'Váy dạo phố', 'Giày thể thao', 'Túi xách nữ', 'Đồng hồ đeo tay'],
+    'Điện máy':  ['Máy lọc không khí', 'Điều hòa mini', 'Tủ lạnh mini', 'Máy giặt', 'Máy hút bụi'],
+    'Thực phẩm': ['Hộp quà tết', 'Thùng bia', 'Giỏ trái cây', 'Hộp bánh kẹo', 'Thùng nước uống'],
+    'Nội thất':  ['Ghế văn phòng', 'Kệ sách', 'Đèn bàn', 'Gương trang trí', 'Thảm trải sàn'],
+    'Y tế':      ['Máy đo huyết áp', 'Hộp sơ cứu', 'Máy xông hơi', 'Nệm massage', 'Kính mắt'],
+    'Thể thao':  ['Vợt cầu lông', 'Bóng đá', 'Thảm yoga', 'Bình nước thể thao', 'Găng tay tập gym'],
+    'Trang trí': ['Bình hoa', 'Tranh treo tường', 'Nến thơm', 'Chậu cây cảnh', 'Đèn trang trí'],
+    'Mỹ phẩm':  ['Kem dưỡng da', 'Son môi', 'Nước hoa', 'Bộ trang điểm', 'Dầu gội đầu'],
+    'Trẻ em':   ['Đồ chơi xếp hình', 'Sách tô màu', 'Balo học sinh', 'Bộ vẽ màu nước', 'Xe đẩy em bé'],
+    'Âm nhạc':  ['Đàn ukulele', 'Sáo trúc', 'Micro karaoke', 'Dây đàn guitar', 'Kèn harmonica'],
+    'Đồ chơi':  ['Robot lắp ghép', 'Búp bê barbie', 'Xe điều khiển', 'Lego mini', 'Con quay fidget'],
+    'Xe cộ':    ['Mũ bảo hiểm', 'Găng tay lái xe', 'Gương chiếu hậu', 'Dụng cụ vá xe', 'Túi đựng xe máy'],
+    'Sách':     ['Sách kỹ năng sống', 'Truyện tranh', 'Sách giáo khoa', 'Tiểu thuyết', 'Sách nấu ăn'],
+}
+_TIME_WINDOWS = [('07:00','10:00'),('08:00','12:00'),('09:00','13:00'),('13:00','17:00'),('14:00','18:00'),('16:00','20:00')]
+
+import random as _random
+
+@app.post("/api/v1/orders/generate-random")
+async def generate_random_orders(count: int = 5):
+    """Generate random orders from existing customers and write to orders.json."""
+    if count < 1:
+        raise HTTPException(status_code=400, detail="count must be at least 1")
+
+    customers_db = json.loads(CUSTOMERS_PATH.read_text(encoding="utf-8"))
+    customers = customers_db["customers"]
+    if not customers:
+        raise HTTPException(status_code=400, detail="No customers in database")
+
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    existing = orders_db["orders"]
+    next_id = max((o["id"] for o in existing), default=10000) + 1
+
+    today = _sim_date
+    new_orders = []
+    for i in range(count):
+        customer = _random.choice(customers)
+        category = _random.choice(_CATEGORIES)
+        base_name = _random.choice(_PRODUCT_NAMES[category])
+        product = f"{base_name} #{next_id + i}"
+        tw_start, tw_end = _random.choice(_TIME_WINDOWS)
+        new_orders.append({
+            "id":               next_id + i,
+            "customer_id":      customer["id"],
+            "product_name":     product,
+            "category":         category,
+            "weight":           round(_random.uniform(0.5, 35), 1),
+            "volume":           round(_random.uniform(0.05, 2.0), 2),
+            "time_window_start": tw_start,
+            "time_window_end":   tw_end,
+            "service_duration":  _random.choice([5, 10, 15, 20]),
+            "status":           "pending",
+            "driver_id":        None,
+            "created_at":       today,
+            "notes":            "",
+        })
+
+    orders_db["orders"].extend(new_orders)
+    ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "created": len(new_orders), "orders": new_orders}
+
+
+@app.post("/api/v1/orders/reset-pending")
+async def reset_all_orders_pending():
+    """Reset all orders to pending status and clear driver assignments (demo helper)."""
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    for o in orders_db["orders"]:
+        o["status"] = "pending"
+        o["driver_id"] = None
+    ORDERS_PATH.write_text(json.dumps(orders_db, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    vehicles_db = json.loads(VEHICLES_PATH.read_text(encoding="utf-8"))
+    for v in vehicles_db["vehicles"]:
+        v["status"] = "available"
+    VEHICLES_PATH.write_text(json.dumps(vehicles_db, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    drivers_db = json.loads(DRIVERS_PATH.read_text(encoding="utf-8"))
+    for d in drivers_db["drivers"]:
+        d["status"] = "available"
+    DRIVERS_PATH.write_text(json.dumps(drivers_db, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    ASSIGNMENTS_PATH.write_text(json.dumps(None, ensure_ascii=False), encoding="utf-8")
+
+    total = len(orders_db["orders"])
+    return {"status": "ok", "reset": total}
+
+
+@app.get("/api/v1/drivers/{driver_id}/route-geometry")
+async def fetch_driver_route_geometry(driver_id: int):
+    """Fetch real road geometry from OSRM for the driver's assignment, cache it back to assignments.json."""
+    vehicles_db = json.loads(VEHICLES_PATH.read_text(encoding="utf-8"))
+    driver_vehicle = next((v for v in vehicles_db["vehicles"] if v.get("driver_id") == driver_id), None)
+    if not driver_vehicle:
+        raise HTTPException(status_code=404, detail="Driver vehicle not found")
+
+    vehicle_id = driver_vehicle["id"]
+    assignments_text = ASSIGNMENTS_PATH.read_text(encoding="utf-8").strip()
+    if not assignments_text or assignments_text in ("", "null"):
+        raise HTTPException(status_code=404, detail="No assignment found")
+    assignments = json.loads(assignments_text)
+
+    vehicle_assignment = next(
+        (v for v in assignments.get("vehicles", []) if v["vehicle_id"] == vehicle_id), None
+    )
+    if not vehicle_assignment:
+        raise HTTPException(status_code=404, detail="Vehicle not in assignment")
+
+    DEPOT_LAT, DEPOT_LON = 21.0245, 105.8412
+    customers_db = json.loads(CUSTOMERS_PATH.read_text(encoding="utf-8"))
+    customer_coords = {c["id"]: (c["lat"], c["lon"]) for c in customers_db["customers"] if c.get("lat") and c.get("lon")}
+
+    # Build per-trip coordinate lists and fetch geometry
+    result_geometries: list = []
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for trip in vehicle_assignment.get("trips", []):
+            coords: list = [(DEPOT_LAT, DEPOT_LON)]
+            for customer in trip.get("customers", []):
+                pos = customer_coords.get(customer["customer_id"])
+                if pos:
+                    coords.append(pos)
+            coords.append((DEPOT_LAT, DEPOT_LON))
+            if len(coords) >= 2:
+                geo = await _fetch_trip_geometry(client, coords)
+                result_geometries.append([[lat, lon] for lat, lon in geo])
+                trip["geometry"] = [[lat, lon] for lat, lon in geo]
+            else:
+                result_geometries.append(None)
+
+    # Write geometry back to assignments.json for future loads
+    ASSIGNMENTS_PATH.write_text(json.dumps(assignments, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"geometries": result_geometries}
+
+
+# --- GPS Location Tracking ---
+
+class LocationUpdate(BaseModel):
+    lat: float
+    lon: float
+
+@app.post("/api/v1/drivers/{driver_id}/location")
+async def update_driver_location(driver_id: int, payload: LocationUpdate):
+    _driver_locations[driver_id] = {"driver_id": driver_id, "lat": payload.lat, "lon": payload.lon}
+    return {"status": "ok"}
+
+@app.get("/api/v1/drivers/locations")
+async def get_all_driver_locations():
+    return {"locations": list(_driver_locations.values())}
+
+
+# --- Simulated Dispatch Date ---
+
+class SimDatePayload(BaseModel):
+    date: str
+
+@app.get("/api/v1/config/sim-date")
+def get_sim_date():
+    return {"date": _sim_date}
+
+@app.post("/api/v1/config/sim-date")
+def set_sim_date(payload: SimDatePayload):
+    global _sim_date
+    _sim_date = payload.date
+    return {"date": _sim_date}
+
+
+# --- Admin: All Orders ---
+
+@app.get("/api/v1/admin/orders")
+def admin_get_all_orders():
+    orders_db = json.loads(ORDERS_PATH.read_text(encoding="utf-8"))
+    return {"orders": orders_db["orders"]}
