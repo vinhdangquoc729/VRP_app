@@ -1,17 +1,41 @@
-# TCPVRP — Time-Constrained Pickup-Delivery Vehicle Routing Problem Solver
+# TCPVRP — Time-Constrained Pickup-Delivery Vehicle Routing Problem
 
-A web-based logistics route optimization system that solves the Vehicle Routing Problem with time windows, pickup-delivery constraints, and real road network data. The system uses a Genetic Algorithm backend exposed via a FastAPI server and a React/TypeScript frontend for interactive order and vehicle management.
+A full-stack logistics dispatch system that optimises multi-vehicle delivery routes and supports end-to-end order lifecycle management across three user roles: **Admin (Dispatcher)**, **Driver**, and **Customer**.
 
 ---
 
 ## Features
 
-- **Genetic Algorithm solver** — optimizes multi-vehicle, multi-trip delivery routes under weight, volume, time window, incompatible-goods, and distance constraints
-- **Real road routing** — fetches live travel times and distances from an OSRM instance; falls back to straight-line estimates when unavailable
-- **Interactive map UI** — add/edit orders and vehicles, visualize routes on a Leaflet map
-- **Drag-and-drop route editing** — manually rearrange stops and recalculate costs on the fly
-- **Live progress streaming** — Server-Sent Events push optimization progress to the browser in real time
-- **Route simulation** — time-slider playback to animate deliveries throughout the day
+### Optimisation engine
+- **Genetic Algorithm solver** — multi-vehicle, multi-trip routes under weight, volume, time-window, incompatible-goods, and distance constraints
+- **Best-Insertion heuristic** — inserts new orders into active routes in O(n) without restarting the GA (Dynamic VRP)
+- **Real road routing** — OSRM Table & Route APIs for travel-time matrices and actual road geometry; falls back to Haversine when unavailable
+- **Live progress streaming** — Server-Sent Events push GA progress to the browser in real time
+
+### Admin dashboard
+- Drag-and-drop route editing with instant cost recalculation
+- Route simulation slider (time-axis playback)
+- **Live dispatch** — monitor simulated GPS positions of all drivers; insert orders mid-simulation
+- **Order management** — multi-filter table (status, category, date range, search), per-order cancel
+- **Statistics** — stacked bar chart by day/status, horizontal bar by category, top-driver leaderboard; date-range filter
+- **Simulated dispatch date** (`sim_date`) — global server-side date used for all order creation and filtering
+
+### Customer portal
+- Browse product catalogue and place orders (date stamped with `sim_date`)
+- Track order status in real time with a per-step timeline
+- Cancel pending or failed orders
+
+### Driver app
+- View assigned route with ordered stop list
+- Update each stop: **Start delivery → Delivered / Failed**
+- Simulated GPS marker moves along the real OSRM route geometry after each update
+
+### Order lifecycle
+```
+pending → assigned → in_transit → delivered
+                               → failed
+pending / failed → cancelled
+```
 
 ---
 
@@ -19,24 +43,36 @@ A web-based logistics route optimization system that solves the Vehicle Routing 
 
 ```
 TCPVRP/
-├── vrp_project/          # Python backend
-│   ├── main.py           # FastAPI application & API routes
-│   ├── schemas.py        # Pydantic request/response models
-│   ├── requirements.txt  # Python dependencies
-│   └── vrp/
-│       ├── core/         # Problem definition, solution, and cost evaluation
-│       ├── solvers/      # GA_TCPVRP and alternative solvers
-│       ├── data/         # Data loaders
-│       ├── utils/        # Visualization helpers
-│       └── experiments/  # Batch experiment runners
+├── database/
+│   ├── orders/orders.json        # Order records
+│   ├── drivers/drivers.json      # Driver records
+│   ├── customers/customers.json  # Customer records
+│   ├── vehicles/vehicles.json    # Vehicle records
+│   └── products/products.json   # Product catalogue
 │
-└── vrp-frontend/         # React + TypeScript frontend
-    ├── src/
-    │   ├── App.tsx        # Root component and state management
-    │   ├── MapView.tsx    # Leaflet map with route/order layers
-    │   └── components/   # VehiclePanel, OrderPanel, ResultsPanel, SimulationControls
-    ├── package.json
-    └── vite.config.ts
+├── vrp_project/                  # Python backend (FastAPI)
+│   ├── main.py                   # API routes, global sim_date, order lifecycle logic
+│   ├── requirements.txt
+│   └── vrp/
+│       ├── core/                 # VRPProblem, Solution, Route, cost evaluation
+│       ├── solvers/              # GA_TCPVRP_Solver + alternative solvers
+│       ├── data/                 # Data loaders
+│       └── utils/
+│
+└── vrp-frontend/                 # React 19 + TypeScript (Vite)
+    └── src/
+        ├── App.tsx               # Root state, admin layout, dispatch tab
+        ├── MapView.tsx           # Leaflet map with route/order layers
+        ├── LoginPage.tsx         # Role selection (Admin / Driver / Customer)
+        └── components/
+            ├── OrdersView.tsx        # Admin order management table
+            ├── StatsView.tsx         # Admin statistics dashboard
+            ├── CustomerDashboard.tsx # Customer portal
+            ├── DriverDashboard.tsx   # Driver route + GPS simulation
+            ├── VehiclePanel.tsx
+            ├── OrderPanel.tsx
+            ├── ResultsPanel.tsx
+            └── SimulationControls.tsx
 ```
 
 ---
@@ -48,7 +84,7 @@ TCPVRP/
 | Python | 3.10+ | Backend |
 | Node.js | 18+ | Frontend |
 | npm | 9+ | Frontend package manager |
-| OSRM | any | Optional — provides real travel times/distances. The backend falls back to straight-line estimates if unavailable. |
+| OSRM | any | Optional — public instance used by default |
 
 ---
 
@@ -59,85 +95,98 @@ TCPVRP/
 ```powershell
 cd vrp_project
 
-# Create and activate a virtual environment
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1   # Windows PowerShell
-# source .venv/bin/activate    # macOS / Linux
+.\.venv\Scripts\Activate.ps1      # Windows PowerShell
+# source .venv/bin/activate       # macOS / Linux
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Start the API server
 python main.py
 ```
 
-The server starts at **http://127.0.0.1:8000**.
-
-To run with auto-reload during development:
-
-```powershell
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
-
----
+Server starts at **http://127.0.0.1:8000**.  
+Auto-reload during development: `uvicorn main:app --reload --host 127.0.0.1 --port 8000`
 
 ### 2. Frontend
 
 ```powershell
 cd vrp-frontend
-
-# Install dependencies
 npm install
-
-# Start the development server
 npm run dev
 ```
 
-The app opens at **http://localhost:5173**.
-
----
+App opens at **http://localhost:5173**.
 
 ### 3. OSRM (optional)
 
-The backend calls an OSRM Table API at `http://router.project-osrm.org` by default. For offline or production use, run a local OSRM instance and update the `OSRM_BASE_URL` variable in [vrp_project/main.py](vrp_project/main.py).
+The backend calls `http://router.project-osrm.org` by default. For offline use, run a local instance and update `OSRM_BASE_URL` in `vrp_project/main.py`.
 
 ---
 
 ## Usage
 
-1. Open **http://localhost:5173** in a browser.
-2. **Add vehicles** in the Vehicle panel — set capacity, cost per km, overtime rate, and operating hours.
-3. **Add orders** by clicking on the map or using the Order panel — specify pickup/delivery coordinates, time windows, weight, volume, and goods type.
-4. Click **"Chạy thuật toán"** (Run Algorithm) to start optimization.
-   - The progress bar streams live updates while the GA runs (10-second time limit by default).
-   - Results appear as colored routes on the map and a turn-by-turn table in the Results panel.
-5. **Drag stops** within a route to reorder them, then click **"Tính toán lại"** (Recalculate) to update costs.
-6. Use the **simulation slider** to animate vehicle movement through the delivery schedule.
+### Admin (Dispatcher)
+
+1. Log in as **Admin**, select a dispatcher ID.
+2. Set the **simulated dispatch date** in the Dispatch tab.
+3. Sync vehicles and orders from the database (filter by pending / failed).
+4. Click **"Chạy thuật toán"** to run the GA (10-second limit, live progress bar).
+5. Review routes on the map; drag stops to reorder, then click **"Tính toán lại"** to recalculate costs.
+6. Switch to the **Live** tab to monitor driver GPS positions and insert new orders dynamically.
+7. View daily trends and top drivers in the **Thống kê** tab.
+
+### Customer
+
+1. Log in as **Khách hàng**, select a customer ID.
+2. Browse the product catalogue in **"Đặt hàng"** and confirm an order.
+3. Track status in **"Đơn hàng"** — a timeline shows each stage.
+4. Cancel pending or failed orders with the **"Huỷ đơn"** button.
+
+### Driver
+
+1. Log in as **Tài xế**, select a driver ID and the dispatch date.
+2. View the ordered stop list in the route panel.
+3. Tap **"Bắt đầu giao"** to mark a stop in-transit, then **"Đã giao"** or **"Giao không thành công"** to close it.
+4. The GPS marker animates to the next stop automatically.
 
 ---
 
 ## API Reference
 
-All endpoints are served by the FastAPI backend at `http://127.0.0.1:8000`.
+Interactive docs (Swagger UI): **http://127.0.0.1:8000/docs**
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/routing/solve` | Submit orders and vehicles; returns optimized routes |
-| `GET` | `/api/v1/routing/progress/{session_id}` | SSE stream of optimization progress |
+| `POST` | `/api/v1/routing/solve` | Submit vehicles + orders; returns optimised routes |
+| `GET`  | `/api/v1/routing/progress/{session_id}` | SSE stream of GA progress |
 | `POST` | `/api/v1/routing/recalculate` | Recalculate costs for a manually edited solution |
-
-Interactive API docs (Swagger UI) are available at **http://127.0.0.1:8000/docs**.
+| `GET`  | `/api/v1/config/sim-date` | Get current simulated dispatch date |
+| `POST` | `/api/v1/config/sim-date` | Set simulated dispatch date (global) |
+| `GET`  | `/api/v1/admin/orders` | List all orders (admin) |
+| `PATCH`| `/api/v1/orders/{id}/status` | Update order status (admin) |
+| `POST` | `/api/v1/orders/bulk-status` | Bulk update order statuses |
+| `POST` | `/api/v1/orders/generate-random` | Generate random orders for testing |
+| `GET`  | `/api/v1/customers/{id}/orders` | List orders for a customer |
+| `POST` | `/api/v1/customers/{id}/orders` | Create order for a customer |
+| `PATCH`| `/api/v1/customers/{cid}/orders/{id}/cancel` | Customer cancels their own order |
+| `GET`  | `/api/v1/drivers/{id}/trips` | Get assigned trips for a driver |
+| `PATCH`| `/api/v1/drivers/{id}/trips/{t}/stops/{s}/status` | Driver updates stop status |
+| `POST` | `/api/v1/dispatch/insert-order` | Insert an order into an active route (Best-Insertion) |
 
 ---
 
 ## Algorithm Overview
 
-The core solver (`vrp/solvers/ga_tcpvrp.py`) is a Genetic Algorithm tailored for multi-trip pickup-delivery VRP:
+### Genetic Algorithm (`vrp/solvers/ga_tcpvrp.py`)
 
-- **Chromosome structure** — encodes route priority, stops per route, and order-to-vehicle assignments
-- **Greedy initialization** — nearest-neighbour insertion seeded with constraint-feasible assignments
-- **Fitness function** — minimizes total cost (distance × rate) plus penalty terms for time window violations, overload, and overtime
-- **Parameters** — population 100, up to 500 generations, 10-second wall-clock time limit
+- **Chromosome** — three-part encoding: route priority / stops-per-route (head), visit order (core), order-to-vehicle assignment (tail)
+- **Initialisation** — nearest-neighbour greedy seeding + random fill
+- **Fitness** — total travel cost + penalties for time-window violations, weight/volume overload, and overtime
+- **Operators** — Order Crossover (OX) on the core segment; swap/reverse-segment mutation
+- **Parameters** — population 100, up to 500 generations, 10-second wall-clock limit
+
+### Best-Insertion (dynamic dispatch)
+
+When a new order arrives mid-simulation, the heuristic evaluates every feasible insertion position (i → new → j) in the target vehicle's remaining route and selects the position with minimum extra cost Δc = d(i,o) + d(o,j) − d(i,j), subject to capacity constraints. Runs in O(n) per vehicle.
 
 Default depot: Hanoi Central Post Office (21.0245°N, 105.8412°E).
 
@@ -146,15 +195,12 @@ Default depot: Hanoi Central Post Office (21.0245°N, 105.8412°E).
 ## Development
 
 ```powershell
-# Lint the frontend
-cd vrp-frontend
-npm run lint
+# Lint frontend
+cd vrp-frontend && npm run lint
 
 # Production build
 npm run build
 
-# Preview production build locally
+# Preview production build
 npm run preview
 ```
-
----
