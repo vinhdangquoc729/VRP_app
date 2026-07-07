@@ -159,18 +159,26 @@ Interactive docs (Swagger UI): **http://127.0.0.1:8000/docs**
 | `POST` | `/api/v1/routing/solve` | Submit vehicles + orders; returns optimised routes |
 | `GET`  | `/api/v1/routing/progress/{session_id}` | SSE stream of GA progress |
 | `POST` | `/api/v1/routing/recalculate` | Recalculate costs for a manually edited solution |
+| `POST` | `/api/v1/assignments/confirm` | Persist dispatch result to database |
 | `GET`  | `/api/v1/config/sim-date` | Get current simulated dispatch date |
 | `POST` | `/api/v1/config/sim-date` | Set simulated dispatch date (global) |
 | `GET`  | `/api/v1/admin/orders` | List all orders (admin) |
 | `PATCH`| `/api/v1/orders/{id}/status` | Update order status (admin) |
-| `POST` | `/api/v1/orders/bulk-status` | Bulk update order statuses |
+| `PATCH`| `/api/v1/orders/bulk-status` | Bulk update order statuses |
 | `POST` | `/api/v1/orders/generate-random` | Generate random orders for testing |
+| `POST` | `/api/v1/orders/reset-pending` | Reset all orders to pending (demo helper) |
 | `GET`  | `/api/v1/customers/{id}/orders` | List orders for a customer |
 | `POST` | `/api/v1/customers/{id}/orders` | Create order for a customer |
 | `PATCH`| `/api/v1/customers/{cid}/orders/{id}/cancel` | Customer cancels their own order |
-| `GET`  | `/api/v1/drivers/{id}/trips` | Get assigned trips for a driver |
-| `PATCH`| `/api/v1/drivers/{id}/trips/{t}/stops/{s}/status` | Driver updates stop status |
-| `POST` | `/api/v1/dispatch/insert-order` | Insert an order into an active route (Best-Insertion) |
+| `POST` | `/api/v1/customers/login` | Customer authentication |
+| `GET`  | `/api/v1/products` | Get product catalogue |
+| `GET`  | `/api/v1/drivers/{id}/orders` | Get assigned trips for a driver |
+| `GET`  | `/api/v1/drivers/{id}/route-geometry` | Fetch and cache OSRM geometry for driver routes |
+| `POST` | `/api/v1/drivers/{id}/location` | Push driver GPS position |
+| `GET`  | `/api/v1/drivers/locations` | Get all active driver locations |
+| `POST` | `/api/v1/drivers/login` | Driver authentication |
+
+> Best-Insertion is implemented entirely client-side in `LiveDispatch` — there is no backend endpoint for it.
 
 ---
 
